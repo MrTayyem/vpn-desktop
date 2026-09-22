@@ -1,0 +1,73 @@
+# Azure Pipelines build for TayyemVPN Desktop — used instead of GitHub Actions because of a
+# GitHub account billing lock. Builds on a real Microsoft-hosted Windows machine and publishes
+# the installer as a downloadable pipeline artifact.
+#
+# One-time setup (in the Azure DevOps web UI, not something this file can do):
+#   1. Create a free org at https://dev.azure.com (Microsoft account, separate billing from
+#      GitHub — unaffected by the GitHub lock).
+#   2. New Project → Pipelines → Create Pipeline → GitHub → authorize → pick this repo.
+#      Azure auto-detects this file at the repo root.
+#   3. Run it. First run installs the Azure Pipelines GitHub App on the repo if not already done.
+
+trigger:
+  branches:
+    include: [main]
+  tags:
+    include: ['app-v*']
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  - checkout: self
+
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '20.x'
+    displayName: 'Install Node.js'
+
+  - script: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      echo "##vso[task.prependpath]$USERPROFILE\.cargo\bin"
+    displayName: 'Install Rust'
+
+  - pwsh: |
+      $dir = "resources/windivert"
+      New-Item -ItemType Directory -Force -Path $dir | Out-Null
+      $release = Invoke-RestMethod -Uri "https://api.github.com/repos/basil00/WinDivert/releases/latest"
+      $asset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+      $zipPath = "$env:TEMP\windivert.zip"
+      Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+      $extractDir = "$env:TEMP\windivert-extract"
+      Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+      $x64Dir = Get-ChildItem -Path $extractDir -Recurse -Directory -Filter "x64" | Select-Object -First 1
+      Copy-Item (Join-Path $x64Dir.FullName "WinDivert.dll") $dir -Force
+      Copy-Item (Join-Path $x64Dir.FullName "WinDivert64.sys") $dir -Force
+    displayName: 'Fetch WinDivert'
+
+  - script: npm ci
+    displayName: 'npm ci'
+
+  - script: npm run tauri build
+    displayName: 'Build (unsigned)'
+    condition: not(startsWith(variables['Build.SourceBranch'], 'refs/tags/app-v'))
+
+  # Signed build — only on an "app-v*" tag, and only once TAURI_SIGNING_PRIVATE_KEY /
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD are added as secret pipeline variables (Pipelines → Edit
+  # → Variables → mark as secret). Until then, tag builds will fail here — expected, not a bug.
+  - script: npm run tauri build
+    displayName: 'Build (signed release)'
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/app-v')
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: $(TAURI_SIGNING_PRIVATE_KEY)
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: $(TAURI_SIGNING_PRIVATE_KEY_PASSWORD)
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'src-tauri/target/release/bundle/nsis'
+      ArtifactName: 'installer'
+    displayName: 'Publish installer'

@@ -56,8 +56,32 @@ routing table and (for per-app rules) open a WinDivert handle, both of which req
 
 ## CI builds — you never have to build this locally
 
-`.github/workflows/build.yml` builds the app on a real Windows machine in the cloud (a GitHub
-Actions runner) every time you push. Set this up once:
+**Currently using Azure Pipelines** (`azure-pipelines.yml`), not the GitHub Actions workflow
+below — GitHub Actions was blocked by an account-level billing lock unrelated to this project.
+`.github/workflows/build.yml` is left in place for whenever that's resolved; it's equivalent.
+
+### Azure Pipelines (active)
+
+1. Create a free org at [dev.azure.com](https://dev.azure.com) (Microsoft account — separate
+   billing from GitHub entirely).
+2. New Project → Pipelines → Create Pipeline → GitHub → authorize access → select the
+   `vpn-desktop` repo. Azure auto-detects `azure-pipelines.yml` at the repo root and runs it.
+3. Every push to `main` now builds on a real Windows VM and publishes the installer as a
+   downloadable pipeline artifact (Pipelines → the run → Artifacts). This is genuinely the
+   fastest way to find out whether the Rust code (especially `windivert.rs`) actually compiles.
+4. For a **signed** release build, add two secret pipeline variables (Pipeline → Edit →
+   Variables): `TAURI_SIGNING_PRIVATE_KEY` (full contents of the key file from
+   `npx @tauri-apps/cli signer generate`) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Then push a
+   tag: `git tag app-v0.1.0 && git push origin app-v0.1.0`.
+5. Put the signer's printed **public** key into `src-tauri/tauri.conf.json`'s
+   `plugins.updater.pubkey` (replacing `REPLACE_ME_...`) and commit/push.
+
+Note: this Azure setup only gets you a **downloadable installer per build** — it does not
+automatically publish a GitHub Release or `latest.json` the way the GitHub Actions path (via
+`tauri-apps/tauri-action`) does. Wiring the in-app auto-updater to check against an
+Azure-published artifact instead of a GitHub Release is a follow-up, not done yet.
+
+### GitHub Actions (blocked by billing, kept for later)
 
 1. **Create the repo** (from inside this `vpn-desktop/` folder):
    ```
