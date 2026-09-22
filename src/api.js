@@ -1,0 +1,18 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+
+export const api = {
+  login: (usernameOrEmail, password) => invoke('auth_login', { usernameOrEmail, password }),
+  logout: () => invoke('auth_logout'),
+  restoreSession: () => invoke('auth_restore_session'),
+
+  connect: (username, password) => invoke('vpn_connect', { username, password }),
+  disconnect: () => invoke('vpn_disconnect'),
+  getStatus: () => invoke('vpn_get_status'),
+  onStatus: (cb) => listen('vpn:status', (event) => cb(event.payload)),
+  onLog: (cb) => listen('vpn:log', (event) => cb(event.payload)),
+
+  getSplitTunnelConfig: () => invoke('split_tunnel_get_config'),
+  setSplitTunnelConfig: (config) => invoke('split_tunnel_set_config', { config }),
+  listCandidateApps: () => invoke('split_tunnel_list_candidate_apps'),
+};

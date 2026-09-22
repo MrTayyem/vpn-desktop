@@ -1,0 +1,71 @@
+name: Build TayyemVPN Desktop
+
+# Push a tag like "app-v0.1.0" to cut a real signed release. Any other push/PR just does a
+# build-only sanity check (no release, no signing) so bugs get caught before you tag anything.
+on:
+  push:
+    branches: [main]
+    tags: ['app-v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch WinDivert (per-app split tunneling)
+        shell: pwsh
+        run: |
+          $dir = "resources/windivert"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/basil00/WinDivert/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+          $zipPath = "$env:TEMP\windivert.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+          $extractDir = "$env:TEMP\windivert-extract"
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+          $x64Dir = Get-ChildItem -Path $extractDir -Recurse -Directory -Filter "x64" | Select-Object -First 1
+          Copy-Item (Join-Path $x64Dir.FullName "WinDivert.dll") $dir -Force
+          Copy-Item (Join-Path $x64Dir.FullName "WinDivert64.sys") $dir -Force
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # On a plain push/PR (no tag), this just proves the app still builds — no GitHub
+      # Release, no updater signing, since TAURI_SIGNING_PRIVATE_KEY is only used by the
+      # tauri-action release step below.
+      - name: Build (sanity check)
+        if: ${{ !startsWith(github.ref, 'refs/tags/app-v') }}
+        run: npm run tauri build
+
+      # On an "app-vX.Y.Z" tag: build, sign (needs the two secrets below set in the repo's
+      # Settings > Secrets), and publish a GitHub Release with the installer + updater manifest
+      # attached — this is what the app's auto-updater checks against.
+      - name: Build and release
+        if: ${{ startsWith(github.ref, 'refs/tags/app-v') }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: 'TayyemVPN v__VERSION__'
+          releaseDraft: true
+          prerelease: false

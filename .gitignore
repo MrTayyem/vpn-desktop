@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.log
+.DS_Store
+
+# Third-party redistributable binaries — fetched at build/CI time, not committed.
+resources/windivert/*.dll
+resources/windivert/*.sys
+resources/windivert/*.lib

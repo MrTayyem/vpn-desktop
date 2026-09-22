@@ -1,0 +1,16 @@
+fn main() {
+    // Embeds app.manifest so the built .exe requests admin elevation on launch (Windows only —
+    // tauri_build no-ops this on other platforms, though this app only targets Windows).
+    #[cfg(target_os = "windows")]
+    {
+        let attrs = tauri_build::Attributes::new()
+            .windows_attributes(tauri_build::WindowsAttributes::new().app_manifest(
+                include_str!("app.manifest"),
+            ));
+        tauri_build::try_build(attrs).expect("tauri_build failed");
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        tauri_build::build();
+    }
+}
